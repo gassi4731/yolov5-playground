@@ -27,13 +27,17 @@ Usage - formats:
 
 import argparse
 import os
-import platform
 import sys
 from pathlib import Path
 
 import torch
 
-import pyautogui as pag
+import cv2
+import numpy as np
+
+# -------------------------
+# yolov5
+# -------------------------
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -43,7 +47,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
 from utils.dataloaders import LoadStreams
-from utils.general import (LOGGER, Profile, check_img_size, check_imshow, check_requirements, colorstr, cv2,
+from utils.general import (LOGGER, Profile, check_img_size, check_imshow, check_requirements, cv2,
                            increment_path, non_max_suppression, print_args, scale_boxes, strip_optimizer)
 from utils.plots import Annotator, colors
 from utils.torch_utils import select_device, smart_inference_mode
@@ -60,13 +64,7 @@ def run(
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=False,  # show results
-        save_txt=False,  # save results to *.txt
-        save_conf=False,  # save confidences in --save-txt labels
-        save_crop=False,  # save cropped prediction boxes
-        nosave=False,  # do not save images/videos
         classes=None,  # filter by class: --class 0, or --class 0 2 3
-        agnostic_nms=False,  # class-agnostic NMS
-        augment=False,  # augmented inference
         visualize=False,  # visualize features
         update=False,  # update all models
         project=ROOT / 'runs/detect',  # save results to project/name
@@ -79,16 +77,12 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
-    m_posi_x, m_posi_y = pag.position()
-    print('現在のマウスカーソル位置 x：',m_posi_x)
-    print('現在のマウスカーソル位置 y：',m_posi_y)
-    
     source = str(source)
     webcam = source.isnumeric() or source.endswith('.txt')
 
     # Directories
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'labels' if False else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
     device = select_device(device)
@@ -102,11 +96,6 @@ def run(
         view_img = check_imshow(warn=True)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         bs = len(dataset)
-    # elif screenshot:
-    #     dataset = LoadScreenshots(source, img_size=imgsz, stride=stride, auto=pt)
-    # else:
-    #     dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
-    # vid_path, vid_writer = [None] * bs, [None] * bs
 
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
@@ -122,14 +111,11 @@ def run(
         # Inference
         with dt[1]:
             visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
-            pred = model(im, augment=augment, visualize=visualize)
+            pred = model(im, augment=False, visualize=visualize)
 
         # NMS
         with dt[2]:
-            pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
-
-        # Second-stage classifier (optional)
-        # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
+            pred = non_max_suppression(pred, conf_thres, iou_thres, classes, False, max_det=max_det)
 
         # Process predictions
         for i, det in enumerate(pred):  # per image
@@ -137,8 +123,6 @@ def run(
             if webcam:  # batch_size >= 1
                 p, im0, frame = path[i], im0s[i].copy(), dataset.count
                 s += f'{i}: '
-            # else:
-            #     p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
 
             p = Path(p)  # to Path
             s += '%gx%g ' % im.shape[2:]  # print string
@@ -157,29 +141,26 @@ def run(
                     c = int(cls)  # integer class
                     label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                     if names[c] == "person":
-                        LOGGER.info(f"x: {(xyxy[0].item() + xyxy[2].item()) / 2} y: {(xyxy[1].item() + xyxy[3].item()) / 2}")
+                        x = (xyxy[0].item() + xyxy[2].item()) / 2
+                        y = (xyxy[1].item() + xyxy[3].item()) / 2
+                        four_point_transform(roiPts, x, y)
+                        # LOGGER.info(f"x: {(xyxy[0].item() + xyxy[2].item()) / 2} y: {(xyxy[1].item() + xyxy[3].item()) / 2}")
                     annotator.box_label(xyxy, label, color=colors(c, True))
                     # annotator.box_label(xyxy, label, color=colors(c, True))
 
             # Stream results
             im0 = annotator.result()
             if view_img:
-                if platform.system() == 'Linux' and p not in windows:
-                    windows.append(p)
-                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
-                    cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
-                cv2.imshow(str(p), im0)
+                # if platform.system() == 'Linux' and p not in windows:
+                #     windows.append(p)
+                #     cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
+                #     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+                cv2.imshow('yuragi', im0)
                 cv2.waitKey(1)  # 1 millisecond
-
-        # Print time (inference-only)
-        # LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)
-    if save_txt:
-        s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
-        LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
 
@@ -195,13 +176,7 @@ def parse_opt():
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')
-    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
-    parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
-    parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
-    parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--visualize', action='store_true', help='visualize features')
     parser.add_argument('--update', action='store_true', help='update all models')
     parser.add_argument('--project', default=ROOT / 'runs/detect', help='save results to project/name')
@@ -218,11 +193,65 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
+# -------------------------
+# opencv
+# -------------------------
+def four_point_transform(pts, x, y):
+    (tl, tr, br, bl) = pts
+
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+
+    dst = np.array([[0, 0],
+                    [maxWidth - 1, 0],
+                    [maxWidth - 1, maxHeight - 1],
+                    [0, maxHeight - 1]], dtype="float32")
+
+    M = cv2.getPerspectiveTransform(pts, dst)
+
+    print(M)
+    print("angle of rotation: {}".format(np.arctan2(-M[1, 0], M[0, 0]) * 180 / np.pi))
+
+    # warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+
+    # return warped
+
+# define 4 points for ROI
+def selectROI(event, x, y, flags, param):
+    global roiPts
+
+    if event == cv2.EVENT_LBUTTONDOWN and len(roiPts) < 4:
+        roiPts.append((x, y))
+        print(x, y)
+        print("select ROI")
+
+# ---------------------
+# main
+# ---------------------
 
 def main(opt):
-    check_requirements(exclude=('tensorboard', 'thop'))
-    run(**vars(opt))
+    global roiPts
+    roiPts = []
 
+    check_requirements(exclude=('tensorboard', 'thop'))
+
+    cap = cv2.VideoCapture(int(opt.source))
+    cv2.namedWindow("yuragi")
+    cv2.setMouseCallback("yuragi", selectROI)
+
+    while len(roiPts) < 4:
+        ret, frame = cap.read()
+        cv2.imshow("yuragi", frame)
+        cv2.waitKey(60)
+
+    roiPts = np.array(roiPts, dtype=np.float32)
+
+    run(**vars(opt))
 
 if __name__ == "__main__":
     opt = parse_opt()
